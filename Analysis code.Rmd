@@ -1,0 +1,907 @@
+---
+title: "MNLFA FLP PAPER ANALYSES"
+author: "Meriah L. DeJoseph"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(AICcmodavg)
+library(broom)
+library(lme4)
+library(sm)
+library(tidyr)
+library(lmerTest)
+library(bbmle)
+library(sjstats)
+library (jtools)
+library(ggstance)
+library(cowplot)
+library(insight)
+library(psych)
+library(ppcor)
+
+```
+
+## Load data used in mixed models
+```{r, include=TRUE, warning=FALSE}
+AllData <- read_csv("~/Desktop/ICD/First-year project/FINAL SUBMISSION TO CD/ANALYSES/Analysis files/Analyses/MNLFA_MERGED_5.16.20_wOUTCOMES.csv")
+#View(AllData)
+
+#Create centered age variable to use on all analyses
+AllData$AGE <- AllData$REALAGE - .65
+#summary(AllData$AGE)
+
+AllData$AGE_2 <- AllData$AGE^2
+#summary(AllData$AGE_2)
+
+#Make moderators factors
+AllData$GENDER <- factor(AllData$GENDER) 
+AllData$STATE <- factor(AllData$STATE)
+AllData$RACE <- factor(AllData$RACE)
+AllData$BLACK <- factor(AllData$BLACK)
+AllData$NC <- factor(AllData$NC)
+AllData$FEMALE <- factor(AllData$FEMALE)
+AllData$WAVE <- factor(AllData$WAVE)
+#str(AllData)
+
+#Then create sub datasets that only have the relevant info and ensure same cases across both the MNLFA and mean scores
+
+ES <- AllData %>% 
+  dplyr::select(SID, WAVE, ESINDEX, REALAGE, AGE, AGE_2, INR, INR1orbelow,
+         BLACK, NC, FEMALE, RACE, STATE, GENDER,ESETA1, ES_Mn) %>% 
+  filter(ES_Mn >= 0)
+#head(ES)
+#str(ES)
+         
+HOME <- AllData %>% 
+  dplyr::select(SID, WAVE, HOMEINDEX, REALAGE, AGE, AGE_2, INR, INR1orbelow,
+         BLACK, NC, FEMALE, RACE, STATE, GENDER,
+         HOMEETA1, HOME_Mn) %>% 
+  filter(HOME_Mn >= 0) #filtering to get exact same cases 
+#head(HOME)
+
+CTS <- AllData %>% 
+  dplyr::select(SID, WAVE, CTSINDEX, REALAGE, AGE, AGE_2, INR, INR1orbelow,
+         BLACK, NC, FEMALE, RACE, STATE, GENDER,
+         CTSETA1, CTS_Mn) %>% 
+  filter(CTS_Mn >= 0)
+#head(CTS)
+
+```
+
+
+
+
+######################################
+###ES MODELS
+######################################
+
+##ES ETA
+```{r, include=TRUE, warning=FALSE}
+
+#Fixed effects of final covariates included in MNLFA model
+ESlmer1 = lmer(ESETA1 ~ 1 + AGE + AGE_2 + BLACK + (1|SID), data = ES, REML = FALSE)
+summary(ESlmer1)
+#plot(ESlmer1)
+#icc(ESlmer1)
+
+#Random effects of linear age
+ESlmer2 = lmer(ESETA1 ~ 1 + AGE + AGE_2 + BLACK + (1+AGE|SID), data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(ESlmer2)
+
+#Random effects of linear and qudratic age 
+ESlmer3 = lmer(ESETA1 ~ 1 + AGE + AGE_2 + BLACK + (1+AGE+AGE_2|SID), data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(ESlmer3) #######DID NOT CONVERGE SO AM NOT COMPARING############
+
+#Compare models with random effects 
+anova(ESlmer1, ESlmer2) #Model 2 is best 
+
+
+
+#Model with interactions of age
+
+#Interaction with race and age 
+ESlmer4 = lmer(ESETA1 ~ 1 + AGE + AGE_2 + BLACK + AGE:BLACK + AGE_2:BLACK + (1+AGE|SID), data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(ESlmer4)
+
+anova(ESlmer2, ESlmer4) #Model 4 not better than model 2, so keeping model 2 as final model
+
+
+
+#Get predicted values
+ES$ESyhat = predict(ESlmer2, newdata = ES, re.form = NA)
+
+#Plot best model 
+ESETAmodel <- ggplot(data = ES, aes(x = REALAGE, y = ESyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=ESETA1), alpha = 0.3, show.legend = FALSE) +
+  theme_bw() +
+  ylab("ES: MNLFA") +
+  xlab("AGE (years)")
+ggsave("ESETAmodel.png", width = 4, height = 4)
+
+#Plot trajectories
+# ESETAmodeltraj <- ggplot(data = ES, aes(x = REALAGE, y = ESyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=ESyhat), alpha = 0.3, show.legend = FALSE) +
+#   theme_bw() +
+#   ylab("ES: MNLFA") +
+#   xlab("AGE (years)")
+# ggsave("ESETAmodeltraj.png", width = 4, height = 4)
+
+# #Assumption check -- all good
+# 	res <- resid(ESlmer2) 
+#   #res
+# 
+#   hist(res)
+#   boxplot(res)
+#   qqPlot(res )
+#   describe(res)
+```
+
+###ES mean
+```{r, include=TRUE, warning=FALSE}
+#Baseline model
+ESmnlmer1 = lmer(ES_Mn ~ 1 + (1|SID), data = ES, REML = FALSE)
+summary(ESmnlmer1)
+#plot(ESmnlmer1)
+#icc(ESmnlmer1)
+
+#Fixed effects of linear age
+ESmnlmer2 = lmer(ES_Mn ~ 1 + AGE + (1|SID), data = ES, REML = FALSE)
+#summary(ESmnlmer2)
+#plot(ESmnlmer2)
+#icc(ESmnlmer2)
+
+#Fixed effects of quadratic age
+ESmnlmer3 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1|SID), data = ES, REML = FALSE)
+#summary(ESmnlmer3)
+#plot(ESlmer3)
+#icc(ESlmer3)
+
+#Compare models of fixed effects
+anova(ESmnlmer1, ESmnlmer2, ESmnlmer3) #Model 3 best 
+
+
+
+#Random effects of linear age
+ESmnlmer4 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID), data = ES, REML = FALSE,
+                 control=lmerControl(optimizer = "Nelder_Mead"))
+
+#summary(ESmnlmer4)
+
+#Random effects of linear and qudratic age 
+ESmnlmer5 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1+AGE+AGE_2|SID), data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(ESmnlmer5) #######DID NOT CONVERGE############
+
+##Compare models 
+anova(ESmnlmer3, ESmnlmer4) #Model 4 is best 
+
+
+
+
+
+#Add fixed effects of covariates 
+ESmnlmer6 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) + 
+               NC + FEMALE + BLACK, 
+               data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(ESmnlmer6) #take out NC and female, not sig
+
+#Interact the sig covariates with linear and quadratic age 
+ESmnlmer7 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) +
+                 BLACK +
+                 AGE:BLACK + AGE_2:BLACK,
+                 data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(ESmnlmer7) #Interactions not sig, so going back to main effects without female
+
+#Main effects model 6, now without female and NC and comparing this to other models 
+ESmnlmer8 = lmer(ES_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) + 
+               BLACK, 
+               data = ES, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(ESmnlmer8)
+
+#Compare covariate models against functional form model 
+anova(ESmnlmer4,ESmnlmer6, ESmnlmer7, ESmnlmer8) #Model 8 is best 
+
+
+
+
+
+#Get predicted values
+ES$ESmnyhat = predict(ESmnlmer8, newdata = ES, re.form = NA)
+
+#Plot best model 
+ESMNmodel <- ggplot(data = ES, aes(x = REALAGE, y = ESmnyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=ES_Mn), alpha = 0.3, show.legend = FALSE) +
+  geom_jitter()+
+  theme_bw() +
+  ylab("ES: Raw Means") +
+  xlab("AGE (years)")
+ggsave("ESMNmodel.png", width = 4, height = 4)
+
+# #Plot trajectories
+# ESMNmodeltraj <- ggplot(data = ES, aes(x = AGE, y = ESmnyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=ESmnyhat), alpha = 0.3, show.legend = FALSE) +
+#   theme_bw() +
+#   ylab("ES: Raw Means") +
+#   xlab("AGE (years)")
+# ggsave("ESMNmodeltraj.png", width = 4, height = 4)
+
+
+```
+
+
+
+
+
+
+
+
+
+######################################
+###HOME MODELS
+######################################
+
+##HOME ETA
+```{r, include=TRUE, warning=FALSE}
+
+#Fixed effects of final covariates included in MNLFA model
+HOMElmer1 = lmer(HOMEETA1 ~ 1 + AGE + AGE_2 + BLACK + (1|SID), data = HOME, REML = FALSE)
+summary(HOMElmer1)
+#plot(HOMElmer1)
+#icc(HOMElmer1)
+
+#Random effects of linear age
+HOMElmer2 = lmer(HOMEETA1 ~ 1 + AGE + AGE_2 + BLACK + (1+AGE|SID), data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(HOMElmer2) 
+
+#Random effects of linear and qudratic age 
+HOMElmer3 = lmer(HOMEETA1 ~ 1 + AGE + AGE_2 + BLACK + (1+AGE+AGE_2|SID), data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(HOMElmer3) 
+
+#Compare models with random effects 
+anova(HOMElmer1, HOMElmer2, HOMElmer3) #Model 3 best
+
+
+#Model with interactions of age
+
+#Interaction with race and age 
+HOMElmer4 = lmer(HOMEETA1 ~ 1 + AGE + AGE_2 + BLACK + AGE:BLACK + AGE_2:BLACK + (1+AGE+AGE_2|SID), data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead")) #######DID NOT CONVERGE############
+
+#Since model 4 did not converge, going with model 3 as best
+
+
+
+#Get predicted values
+HOME$HOMEyhat = predict(HOMElmer3, newdata = HOME, re.form = NA)
+
+#Plot best model 
+HOMEETAmodel <- ggplot(data = HOME, aes(x = REALAGE, y = HOMEyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=HOMEETA1), alpha = 0.3, show.legend = FALSE) +
+  theme_bw() +
+  ylab("HOME: MNLFA") +
+  xlab("AGE (years)")
+ggsave("HOMEETAmodel.png", width = 4, height = 4)
+
+#Plot trajectories
+# HOMEETAmodeltraj <- ggplot(data = HOME, aes(x = AGE, y = HOMEyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=HOMEyhat), alpha = 0.3, show.legend = FALSE) +
+#   theme_bw() +
+#   ylab("HOME: MNLFA") +
+#   xlab("AGE (years)")
+# ggsave("HOMEETAmodeltraj.png", width = 4, height = 4)
+
+# #Assumption check -- all good
+# 	res <- resid(HOMElmer3) 
+#   #res
+# 
+#   hist(res)
+#   boxplot(res)
+#   qqPlot(res )
+#   describe(res)
+```
+
+##HOME mean
+```{r, include=TRUE, warning=FALSE}
+
+#Baseline model
+HOMEmnlmer1 = lmer(HOME_Mn ~ 1 + (1|SID), data = HOME, REML = FALSE)
+summary(HOMEmnlmer1)
+#plot(HOMEmnlmer1)
+#icc(HOMEmnlmer1)
+
+#Fixed effects of linear age
+HOMEmnlmer2 = lmer(HOME_Mn ~ 1 + AGE + (1|SID), data = HOME, REML = FALSE)
+#summary(HOMEmnlmer2)
+#plot(HOMEmnlmer2)
+#icc(HOMEmnlmer2)
+
+#Fixed effects of quadratic age
+HOMEmnlmer3 = lmer(HOME_Mn ~ 1 + AGE + AGE_2 + (1|SID), data = HOME, REML = FALSE)
+#summary(HOMEmnlmer3)
+#plot(HOMElmer3)
+#icc(HOMElmer3)
+
+#Compare fixed effects of age
+anova(HOMEmnlmer1, HOMEmnlmer2, HOMEmnlmer3) #Model 3 best 
+
+
+
+#Random effects of linear age
+HOMEmnlmer4 = lmer(HOME_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID), data = HOME, REML = FALSE,
+                 control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(HOMEmnlmer4)  
+
+#Random effects of linear and qudratic age 
+HOMEmnlmer5 = lmer(HOME_Mn ~ 1 + AGE + AGE_2 + (1+AGE+AGE_2|SID), data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(HOMEmnlmer5) 
+
+#Compare random effect models
+anova(HOMEmnlmer4, HOMEmnlmer5) #Model 5 best
+
+
+#Add fixed effects of covariates 
+HOMEmnlmer6 = lmer(HOME_Mn ~ 1 + AGE + AGE_2 + (1+AGE+AGE_2|SID)+ 
+               NC + FEMALE + BLACK, 
+               data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(HOMEmnlmer6) #take out NC and female, not sig. 
+
+#Interact the sig covariates with linear and quadratic age 
+HOMEmnlmer7 = lmer(HOME_Mn ~ 1 + AGE + AGE_2 + (1+AGE+AGE_2|SID) +
+                 BLACK +
+                 AGE:BLACK + AGE_2:BLACK,
+                 data = HOME, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(HOMEmnlmer7) #Interactions all sig. 
+
+
+#Compare covariate models against final functional form model
+anova(HOMEmnlmer5, HOMEmnlmer6, HOMEmnlmer7) #Model 7 best 
+anova(HOMEmnlmer1, HOMEmnlmer2, HOMEmnlmer3, HOMEmnlmer4, HOMEmnlmer5, HOMEmnlmer6, HOMEmnlmer7) 
+
+#Get predicted 
+HOME$HOMEmnyhat = predict(HOMEmnlmer7, newdata = HOME, re.form = NA) 
+
+#Plot best model 
+HOMEMNmodel <- ggplot(data = HOME, aes(x = REALAGE, y = HOMEmnyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=HOME_Mn), alpha = 0.3, show.legend = FALSE) +
+  theme_bw() +
+  ylab("HOME: Raw means") +
+  xlab("AGE (years)")
+ggsave("HOMEMNmodel.png", width = 4, height = 4)
+
+# #Plot trajectories
+# HOMEMNmodeltraj <- ggplot(data = HOME, aes(x = REALAGE, y = HOMEmnyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=HOMEmnyhat), alpha = 0.3, show.legend = FALSE) +
+#   theme_bw() +
+#   ylab("HOME: Raw means") +
+#   xlab("AGE (years)")
+# ggsave("HOMEMNmodeltraj.png", width = 4, height = 4)
+
+
+
+# 	res <- resid(HOMEmnlmer7) 
+#   #res
+# 
+#   hist(res)
+#   boxplot(res)
+#   qqPlot(res )
+#   describe(res)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+######################################
+###CTS MODELS
+######################################
+
+##CTS ETA
+```{r, include=TRUE, warning=FALSE}
+
+#Fixed effects of final covariates included in MNLFA model
+CTSlmer1 = lmer(CTSETA1 ~ 1 + AGE + AGE_2 + BLACK + NC + (1|SID), data = CTS, REML = FALSE)
+summary(CTSlmer1)
+#plot(CTSlmer1)
+#icc(CTSlmer1)
+
+#Random effects of linear age
+CTSlmer2 = lmer(CTSETA1 ~ 1 + AGE + AGE_2 + BLACK + NC + (1+AGE|SID), data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(CTSlmer2)
+
+#Random effects of linear and qudratic age 
+CTSlmer3 = lmer(CTSETA1 ~ 1 + AGE + AGE_2 + BLACK + NC + (1+AGE+AGE_2|SID), data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(CTSlmer3) #######DID NOT CONVERGE############
+
+#Compare models 
+anova(CTSlmer1, CTSlmer2) #Model 2 best
+
+
+#Model with interactions of age
+
+#Interaction with race and age 
+CTSlmer4 = lmer(CTSETA1 ~ 1 + AGE + AGE_2 + BLACK + NC + 
+                  AGE:BLACK + AGE_2:BLACK + AGE:NC + AGE_2:NC + (1+AGE|SID), data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(CTSlmer4)
+
+#Compare 
+anova(CTSlmer2, CTSlmer4) #Model 4 best
+
+
+#Get predicted values
+CTS$CTSyhat = predict(CTSlmer4, newdata = CTS, re.form = NA)
+
+#Plot best model 
+CTSETAmodel <- ggplot(data = CTS, aes(x = REALAGE, y = CTSyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=CTSETA1), alpha = 0.3, show.legend = FALSE) +
+  theme_bw() +
+  ylab("CTS: MNLFA") +
+  xlab("AGE (years)")
+ggsave("CTSETAmodel.png", width = 4, height = 4)
+
+# #Plot trajectories
+# CTSETAmodeltraj <- ggplot(data = CTS, aes(x = REALAGE, y = CTSyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=CTSyhat), alpha = 0.3, show.legend = FALSE) +
+#   #facet_wrap(~NC) +
+#   theme_bw() +
+#   ylab("CTS: MNLFA") +
+#   xlab("AGE (years)")
+# ggsave("CTSETAmodeltraj.png", width = 4, height = 4)
+
+
+# #Assumption check -- all good
+# 	res <- resid(CTSlmer2) 
+#   #res
+# 
+#   hist(res)
+#   boxplot(res)
+#   qqPlot(res )
+#   describe(res)
+
+```
+
+##CTS mean
+```{r, include=TRUE, warning=FALSE}
+
+#Baseline model
+CTSmnlmer1 = lmer(CTS_Mn ~ 1 + (1|SID), data = CTS, REML = FALSE)
+summary(CTSmnlmer1)
+#plot(CTSmnlmer1)
+#icc(CTSmnlmer1)
+
+#Fixed effects of linear age
+CTSmnlmer2 = lmer(CTS_Mn ~ 1 + AGE + (1|SID), data = CTS, REML = FALSE)
+#summary(CTSmnlmer2)
+#plot(CTSmnlmer2)
+#icc(CTSmnlmer2)
+
+#Fixed effects of quadratic age
+CTSmnlmer3 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1|SID), data = CTS, REML = FALSE)
+#summary(CTSmnlmer3)
+#plot(CTSmnlmer3)
+#icc(CTSmnlmer3)
+
+#Compare fixed effects
+anova(CTSmnlmer1, CTSmnlmer2, CTSmnlmer3) #Model 3 best 
+
+
+
+#Random effects of linear age
+CTSmnlmer4 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID), data = CTS, REML = FALSE,
+                 control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(CTSmnlmer4)
+
+#Random effects of linear and qudratic age 
+CTSmnlmer5 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1+AGE+AGE_2|SID), data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(CTSmnlmer5) #########DID NOT CONVERGE#############
+
+#Compare
+anova(CTSmnlmer3, CTSmnlmer4) #Model 4 best 
+
+
+
+
+
+#Add fixed effects of covariates 
+CTSmnlmer6 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) + 
+               NC + FEMALE + BLACK, 
+               data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+#summary(CTSmnlmer6) #take out female, not sig
+
+#Interact the sig covariates with linear and quadratic age 
+CTSmnlmer7 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) +
+                 NC + BLACK +
+                 AGE:NC + AGE:BLACK + AGE_2: NC + AGE_2:BLACK,
+                 data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(CTSmnlmer7) #Interactions not sig so take out
+
+CTSmnlmer8 = lmer(CTS_Mn ~ 1 + AGE + AGE_2 + (1+AGE|SID) + 
+               NC + BLACK, 
+               data = CTS, REML = FALSE,
+               control=lmerControl(optimizer = "Nelder_Mead"))
+summary(CTSmnlmer8) 
+
+anova(CTSmnlmer4, CTSmnlmer6, CTSmnlmer7, CTSmnlmer8) #Model 7 best but no interactions are sig, log like and AIC very close between 7 and 8, so going with model 8 for parsimony and to remain consistent with analytic plan of taking out nonsig parameters
+
+
+#Get predicted
+CTS$CTSmnyhat = predict(CTSmnlmer8, newdata = CTS, re.form = NA)
+
+#Plot best model 
+CTSMNmodel <- ggplot(data = CTS, aes(x = REALAGE, y = CTSmnyhat, color=BLACK)) +
+  geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+  geom_point(aes(y=CTS_Mn), alpha = 0.3, show.legend = FALSE) +
+  theme_bw() +
+  ylab("CTS: Raw Means") +
+  xlab("AGE (years)")
+ggsave("CTSMNmodel.png", width = 4, height = 4)
+
+#Plot trajectories
+# CTSMNmodeltraj <- ggplot(data = CTS, aes(x = REALAGE, y = CTSmnyhat, color=BLACK)) +
+#   geom_smooth(method="loess", lwd = 1.5, show.legend = FALSE) +
+#   geom_line(aes(group = SID), alpha = 0.3, show.legend = FALSE)+
+#   geom_point(aes(y=CTSmnyhat), alpha = 0.3, show.legend = FALSE) +
+#   #facet_wrap(~NC) +
+#   theme_bw() +
+#   ylab("CTS: Raw Means") +
+#   xlab("AGE (years)")
+# ggsave("CTSMNmodeltraj.png", width = 4, height = 4)
+
+# #Assumption check -- all good
+# 	res <- resid(CTSmnlmer7) 
+#   #res
+# 
+#   hist(res)
+#   boxplot(res)
+#   qqPlot(res )
+#   describe(res)
+
+```
+
+
+
+
+
+
+
+################################################
+###Get unconditional between and within variances for d calculations
+################################################
+```{r, include=TRUE, warning=FALSE}
+
+##ESETA
+ESETAlmer0 = lmer(ESETA1 ~ 1 + (1|SID), data = ES, REML = FALSE)
+summary(ESETAlmer0) # Btwn + w/in variation: .430 + .500 = .93
+#ES_Mn
+summary(ESmnlmer1) # Btwn + w/in variation: .237 + .260 = .497
+
+
+
+#HOMEETA
+HOMEETAlmer0 = lmer(HOMEETA1 ~ 1 + (1|SID), data = HOME, REML = FALSE)
+summary(HOMEETAlmer0) # Btwn + w/in variation: .3044 + 1.0215 = 1.3259
+#HOME_Mn
+summary(HOMEmnlmer1) # Btwn + w/in variation: .0146 + .0336 = .04802
+
+
+
+#CTSETA
+CTSETAlmer0 = lmer(CTSETA1 ~ 1 + (1|SID), data = CTS, REML = FALSE)
+summary(CTSETAlmer0) # Btwn + w/in variation: .4214 + .4622 = .8836
+#CTS_Mn
+summary(CTSmnlmer1) # Btwn + w/in variation: .09399 + .09499 = .18898
+
+```
+
+
+
+
+
+################################################
+###Partial correlations with criterion measures
+################################################
+```{r, include=TRUE, warning=FALSE}
+
+###Get correlations between factor scores and criterion measures
+
+#First factors need to be made numeric
+AllData$BLACK <- as.numeric(AllData$BLACK)
+AllData$NC <- as.numeric(AllData$NC)
+
+###########################
+##########ESETA#########
+###########################
+
+#Partial correlation between ESETA and EF given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ESETA1", "hf_mxdpcor_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#More ES sig associated with slightly less accuracy
+
+my_matrix <- AllData[, c("ESETA1", "hf_mxdmnlat_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#Not associated with latency
+
+#Partial correlation between ESETA and SDQ given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ESETA1", "StrDif_Tot","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK")])
+#More ES sig more beh probs
+
+#Partial correlation between ESETA and INR  given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ESETA1", "INR","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$INR, my_matrix[,c("AGE","BLACK")])
+#More ES sig less INR 
+
+
+
+
+###########################
+##########HOMEETA#########
+###########################
+
+#Partial correlation between HOMEETA and EF given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOMEETA1", "hf_mxdpcor_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOMEETA1, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#More stim sig associated with greater accuracy
+
+my_matrix <- AllData[, c("HOMEETA1", "hf_mxdmnlat_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOMEETA1, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#Not associated with latency
+
+#Partial correlation between HOMEETA and SDQ given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOMEETA1", "StrDif_Tot","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOMEETA1, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK")])
+#More stim sig less beh probs
+
+#Partial correlation between HOMEETA and INR  given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOMEETA1", "INR","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOMEETA1, my_matrix$INR, my_matrix[,c("AGE","BLACK")])
+#More stim sig more INR
+
+
+
+
+
+
+
+###########################
+##########CTSETA#########
+###########################
+
+#Partial correlation between CTSETA and EF given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTSETA1", "hf_mxdpcor_12yr_TC","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTSETA1, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK", "NC")])
+#Not associated 
+
+my_matrix <- AllData[, c("CTSETA1", "hf_mxdmnlat_12yr_TC","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTSETA1, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK", "NC")])
+#Not associated 
+
+#Partial correlation between CTSETA and SDQ given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTSETA1", "StrDif_Tot","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTSETA1, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK", "NC")])
+#More threat sig associated with more beh probs
+
+#Partial correlation between CTSETA and INR  given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTSETA1", "INR","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTSETA1, my_matrix$INR, my_matrix[,c("AGE","BLACK", "NC")])
+#More threat sig assoc with slightly less INR
+
+
+
+
+
+
+
+
+
+
+
+
+
+###Get correlations between raw means and criterion measures 
+
+
+###########################
+##########ESMN#########
+###########################
+
+#Partial correlation between ES_Mn and EF given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ES_Mn", "hf_mxdpcor_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#More ES sig associated with slightly less accuracy
+
+my_matrix <- AllData[, c("ES_Mn", "hf_mxdmnlat_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#Not associated with latency
+
+#Partial correlation between ES_Mn and SDQ given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ES_Mn", "StrDif_Tot","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK")])
+#More ES sig more beh probs
+
+#Partial correlation between ES_Mn and INR  given "BLACK" and "AGE"
+my_matrix <- AllData[, c("ES_Mn", "INR","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$INR, my_matrix[,c("AGE","BLACK")])
+#More ES sig less INR 
+
+
+
+
+###########################
+##########HOMEMN#########
+###########################
+
+#Partial correlation between OME_Mn and EF given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOME_Mn", "hf_mxdpcor_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOME_Mn, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#More stim sig associated with greater accuracy
+
+my_matrix <- AllData[, c("HOME_Mn", "hf_mxdmnlat_12yr_TC","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOME_Mn, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK")])
+#Not associated with latency
+
+#Partial correlation between HOME_Mn and SDQ given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOME_Mn", "StrDif_Tot","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOME_Mn, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK")])
+#More stim sig less beh probs
+
+#Partial correlation between HOME_Mn and INR  given "BLACK" and "AGE"
+my_matrix <- AllData[, c("HOME_Mn", "INR","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOME_Mn, my_matrix$INR, my_matrix[,c("AGE","BLACK")])
+#More stim sig more INR
+
+
+
+
+
+
+
+
+
+
+###########################
+##########CTSMN#########
+###########################
+
+#Partial correlation between CTS_Mn and EF given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTS_Mn", "hf_mxdpcor_12yr_TC","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTS_Mn, my_matrix$hf_mxdpcor_12yr_TC, my_matrix[,c("AGE","BLACK", "NC")])
+#Not associated 
+
+my_matrix <- AllData[, c("CTS_Mn", "hf_mxdmnlat_12yr_TC","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTS_Mn, my_matrix$hf_mxdmnlat_12yr_TC, my_matrix[,c("AGE","BLACK", "NC")])
+#Not associated 
+
+#Partial correlation between CTS_Mn and SDQ given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTS_Mn", "StrDif_Tot","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTS_Mn, my_matrix$StrDif_Tot, my_matrix[,c("AGE","BLACK", "NC")])
+#More threat sig associated with more beh probs
+
+#Partial correlation between CTSETA and INR  given "BLACK" and "AGE" and "NC"
+my_matrix <- AllData[, c("CTS_Mn", "INR","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$CTS_Mn, my_matrix$INR, my_matrix[,c("AGE","BLACK", "NC")])
+#More threat sig assoc with slightly less INR
+
+
+
+
+
+####################################
+###Correlations among the predictors
+####################################
+
+##ETAs
+
+#mat dep and sociocog
+my_matrix <- AllData[, c("ESETA1","HOMEETA1","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$HOMEETA1, my_matrix[,c("AGE","BLACK")])
+
+#mat dep and emo threat
+my_matrix <- AllData[, c("ESETA1","CTSETA1","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ESETA1, my_matrix$CTSETA1, my_matrix[,c("AGE","BLACK", "NC")])
+
+#sociocog and emo threat
+my_matrix <- AllData[, c("HOMEETA1","CTSETA1","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOMEETA1, my_matrix$CTSETA1, my_matrix[,c("AGE","BLACK", "NC")])
+
+
+##Means
+#mat dep and sociocog
+my_matrix <- AllData[, c("ES_Mn","HOME_Mn","AGE", "BLACK")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$HOME_Mn, my_matrix[,c("AGE","BLACK")])
+
+#mat dep and emo threat
+my_matrix <- AllData[, c("ES_Mn","CTS_Mn","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$ES_Mn, my_matrix$CTS_Mn, my_matrix[,c("AGE","BLACK", "NC")])
+
+#sociocog and emo threat
+my_matrix <- AllData[, c("HOME_Mn","CTS_Mn","AGE", "BLACK", "NC")]
+my_matrix <-na.omit(my_matrix)
+pcor.test(my_matrix$HOME_Mn, my_matrix$CTS_Mn, my_matrix[,c("AGE","BLACK", "NC")])
+
+
+```
+
+
+
+
+
+
+
+
+
