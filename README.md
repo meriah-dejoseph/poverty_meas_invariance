@@ -1,2 +1,2 @@
 # poverty_meas_invariance
-Project examining measurement invariance of 3 environmental dimensions of adversity and resources in the context of poverty
+Code from Capturing environmental dimensions of adversity and resources in the context of poverty across infancy through early adolescence: A moderated nonlinear factor model
